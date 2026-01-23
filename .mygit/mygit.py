@@ -1,3 +1,4 @@
+from genericpath import isdir
 import os
 import hashlib
 import zlib
@@ -49,3 +50,29 @@ def cat_file(sha1):
     # Split header and content at the null byte
     header, content = raw.split(b"\0", 1)
     return content.decode()
+  
+# This function scans your current directory and 
+# creates a Tree object in your .mygit/objects folder.
+def write_tree(directory="."):
+  entries = []
+  
+  # Walk through files in the current directory
+  for entry in sorted(os.listdir(directory)):
+    if entry == ".mygit":
+      continue
+    
+    full_path = os.path.join(directory, entry)
+    
+    if os.path.isfile(full_path):
+      with open(full_path, "rb") as f:
+        sha1 = hash_object(f.read(), type="blob")
+      # Format: mode, type, sha, name
+      entries.append(f"100644 blob {sha1}\t{entry}")
+    elif os.path.isdir(full_path):
+      # Recursion! A directory becomes a sub-tree
+      sha1 = write_tree(full_path)
+      entries.append(f"040000 tree {sha1}\t{entry}")
+      
+  # Join entries and hash the tree itself
+  tree_content = "\n".join(entries).encode()
+  return hash_object(tree_content, type="tree")
