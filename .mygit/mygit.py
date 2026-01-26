@@ -93,9 +93,11 @@ def commit(message, author="User"): # Default to current user
     tree_sha = write_tree() # Get the tree SHA
 
     # 2. Get the parent SHA (from HEAD)
+    ref_path = get_head_ref()
     parent_sha = None 
-    head_path = ".mygit/HEAD"
-    # (Simplified logic: in real Git, HEAD points to a branch file)
+    if os.path.exists(ref_path):
+      with open(ref_path, "r") as f:
+        parent_sha = f.read().strip()
 
     # 3. Build the commit content
     commit_lines = [f"tree {tree_sha}"] 
@@ -106,12 +108,60 @@ def commit(message, author="User"): # Default to current user
     commit_lines.append("")
     commit_lines.append(message)
 
-    commit_content = "\n".join(commit_lines).encode() 
-
     # 4. Hash and save the commit
-    commit_sha = hash_object(commit_content, type="commit")
+    commit_sha = hash_object("\n".join(commit_lines).encode(), type="commit")
 
     # 5. Update the branch pointer (e.g., main) to this new commit
-    # For now, we'll just print it
-    print(f"Created commit: {commit_sha}")
+    os.makedirs(os.path.dirname(ref_path), exist_ok=True)
+    with open(ref_path, "w") as f:
+      f.write(commit_sha)
+    print(f"[{os.path.basename(ref_path)}] {commit_sha[:7]} - {message}")
     return commit_sha
+
+"""
+To make this a functional version control system, we need to stop just printing hashes and start storing them. 
+This is where Refs (References) come in.
+
+In Git, a branch is not a complex data structure; 
+it is literally just a tiny text file that contains a 40-character SHA-1 hash. 
+That’s it. When you make a new commit, you just overwrite that text file with the new hash.
+"""
+def get_head_ref():
+  # Returns the path to the current branch file (e.g., .mygit/refs/heads/main)
+  with open(".mygit/HEAD", "r") as f:
+    content = f.read().strip() # Remove whitespace
+  if content.startswith("ref: "): # Check if HEAD points to a branch
+    return os.path.join(".mygit", content[5:]) # Return the branch file path
+  return None # Return None if HEAD points to a commit
+
+# =====================================
+# ===== Show commit history (log) =====
+# =====================================
+def log():
+  # Start at the current branch's latest commit
+  ref_path = get_head_ref()
+  if not os.path.exists(ref_path):
+    print("No commits yet.")
+    return 
+  
+  with open(ref_path, "r") as f:
+    current_sha = f.read().strip()
+  
+  while current_sha:
+    # Read the commit object
+    content = cat_file(current_sha)
+    print("-" * 20) 
+    print(f"commit {current_sha}")
+
+    # Parse the commit content to find the parent
+    parent_sha = None # Initialize parent SHA
+    lines = content.splitlines() # Split the commit content into lines
+    for line in lines:
+      if line.startswith("parent "): # Check if the line starts with "parent "
+        parent_sha = line[7:] # Get the parent SHA
+      if line == "": # End of header, start of message
+        print(f"Message: {lines[lines.index(line) + 1:]}")
+        break
+    
+    # Move to the previous commit
+    current_sha = parent_sha
