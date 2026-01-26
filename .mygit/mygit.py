@@ -2,6 +2,7 @@ import os # used in init(), write_tree() and cat_file()
 import hashlib # used in hash_object()
 import zlib # used in hash_object()
 import time # used in commit()
+import json # used in add()
 
 # ========================================
 # ===== Initialize a database (init) =====
@@ -165,3 +166,79 @@ def log():
     
     # Move to the previous commit
     current_sha = parent_sha
+
+"""
+Instead of committing everything, the add command copies files into the index. 
+When you finally call commit, Git doesn't look at your folders; it only looks at the Index.
+"""
+# ========================================
+# ===== Add files to the index (add) =====
+# ========================================
+def add(filename):
+  # 1. Read the file and create a blob
+  if not os.path.exists(filename):
+    print(f"File {filename} not found.")
+    return
+  
+  with open(filename, "rb") as f:
+    sha1 = hash_object(f.read(), type="blob")
+  
+  # 2. Load the current index
+  index = {}
+  index_path = ".mygit/index"
+  if os.path.exists(index_path):
+    with open(index_path, "r") as f: 
+      index = json.load(f) 
+  
+  # 3. Update the index with the filename and its blob hash
+  index[filename] = sha1 # Add the file to the index
+
+  # 4. Save the index back
+  with open(index_path, "w") as f:
+    json.dump(index, f) 
+  
+  print(f"Staged {filename}") 
+
+def write_tree_from_index():
+  index_path = ".mygit/index"
+  if not os.path.exists(index_path):
+    return None
+  
+  with open(index_path, "r") as f:
+    index = json.load(f)
+
+  entries = []
+  for path, sha1 in sorted(index.items()):
+    # For simplicity, we assume all staged files are blobs in the root
+    entries.append(f"100644 blob {sha1}\t{path}")
+  
+  tree_content = "\n".join(entries).encode()
+  return hash_object(tree_content, type="tree")
+
+# =====================================
+# ===== Checkout a commit (checkout) ==
+# =====================================
+def checkout(commit_sha):
+  # 1. Read the commit to find its tree
+  commit_content = cat_file(commit_sha)
+  tree_sha = None
+  for line in commit_content.splitlines():
+    if line.startswith("tree "):
+      tree_sha = line[5:]
+      break
+  
+  # 2. Read the tree
+  tree_content = cat_file(tree_sha)
+
+  # 3. For each entry in the tree, overwrite the file on disk
+  for line in tree_content.splitlines():
+    # Format: mode type sha\tname
+    parts = line.split()
+    sha = parts[2]
+    name = parts[3]
+
+    blob_content = cat_file(sha)
+    with open(name, "w") as f:
+      f.write(blob_content)
+    
+    print(f"Checked out files from commit {commit_sha[:7]}")
