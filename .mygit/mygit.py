@@ -3,6 +3,7 @@ import hashlib # used in hash_object()
 import zlib # used in hash_object()
 import time # used in commit()
 import json # used in add()
+import difflib # used in diff()
 
 # ========================================
 # ===== Initialize a database (init) =====
@@ -215,9 +216,9 @@ def write_tree_from_index():
   tree_content = "\n".join(entries).encode()
   return hash_object(tree_content, type="tree")
 
-# =====================================
-# ===== Checkout a commit (checkout) ==
-# =====================================
+# ========================================
+# ===== Checkout a commit (checkout) =====
+# ========================================
 def checkout(commit_sha):
   # 1. Read the commit to find its tree
   commit_content = cat_file(commit_sha)
@@ -242,3 +243,86 @@ def checkout(commit_sha):
       f.write(blob_content)
     
     print(f"Checked out files from commit {commit_sha[:7]}")
+
+# ================================
+# ===== Show status (status) =====
+# ================================
+def status():
+  # 1. Get staged files (Index)
+  index = {}
+  if os.path.exists(".mygit/index"):
+    with open(".mygit/index", "r") as f:
+      index = json.load(f)
+  
+  # 2. Get files in Working Directory
+  working_files = [f for f in os.listdir('.') if os.path.isfile(f) and f != "mygit.py"]
+
+  print(f"On branch: {get_head_ref().split('/')[-1]}")
+  print("\nStaged files:")
+  for f in index:
+    print(f" (staged) {f}")
+  
+  print("\nUntracked files:")
+  for f in working_files:
+    if f not in index:
+      print(f" (untracked) {f}")
+
+# ========================================
+# ===== Create a new branch (branch) =====
+# ========================================
+def create_branch(name):
+  # 1. Get the current commit hash from the current branch
+  current_ref = get_head_ref()
+  with open(current_ref, "r") as f:
+    current_sha = f.read().strip()
+  
+  # 2. Create a new ref file with that same hash
+  new_ref_path = f".mygit/refs/heads/{name}"
+  with open(new_ref_path, "w") as f:
+    f.write(current_sha)
+  
+  print(f"Branch '{name}' created at {current_sha[:7]}")
+
+# ============================
+# ===== Show diff (diff) =====
+# ============================
+def diff(filename):
+  # 1. Get the staged version from the index
+  with open(".mygit/index", "r") as f:
+    index = json.load(f)
+
+  if filename not in index:
+    print(f"{filename} is not staged.")
+    return
+
+  staged_sha = index[filename]
+  staged_content = cat_file(staged_sha).splitlines()
+
+  # 2. Get the current working directory version
+  with open(filename, "r") as f:
+    current_content = f.read().splitlines()
+
+  # 3. Use Python's built-in difflib to show changes
+  result = difflib.unified_diff(
+    staged_content,
+    current_content,
+    fromfile="staged",
+    tofile="working"
+  )
+
+  for line in result:
+    print(line)
+
+# =======================================
+# ===== Remove file from index (rm) =====
+# =======================================
+def rm(filename):
+  if os.path.exists(".mygit/index"):
+    with open(".mygit/index", "r") as f:
+      index = json.load(f)
+    
+    if filename in index:
+      del index[filename]
+      with open(".mygit/index", "w") as f:
+        json.dump(index, f)
+      print(f"Unstaged {filename} from index.")
